@@ -1,0 +1,1 @@
+素材は[講座・素材リンク集 - 東方弾幕風 Wiki](http://www.danmakufu.net/?%E5%88%B6%E4%BD%9C%2F%E3%83%AA%E3%83%B3%E3%82%AF#u06f5c45)からお借りしています。
