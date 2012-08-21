@@ -10,6 +10,7 @@ import MonadicShooter.Graphic
 import MonadicShooter.Bullet
 import MonadicShooter.Input
 import MonadicShooter.Player
+import Data.Functor.Identity
 import Data.Danmaku
 import System.Random
 
@@ -33,10 +34,10 @@ data TheState = Playing
         ,player :: Player
 		,bullets :: [RealBullet]
 		,background :: ()
-        ,theDanmaku :: Danmaku Vec2 RealBullet
+        ,theDanmaku :: DanmakuT Vec2 RealBullet Identity
     }
 
-barrage0 :: Danmaku Vec2 RealBullet
+barrage0 :: DanmakuT Vec2 RealBullet Identity
 barrage0 = forever $ do
     playerPos <- observe
     let center = Vec2 240 120
@@ -45,7 +46,7 @@ barrage0 = forever $ do
         fire $ RealBullet (sinCos (i / 60 * 2 * pi + a) &* 4) center 0
     wait 30
 
-barrage1 :: Danmaku Vec2 RealBullet
+barrage1 :: DanmakuT Vec2 RealBullet Identity
 barrage1 = forever $ do
     playerPos <- observe
     let center = Vec2 240 120
@@ -68,7 +69,7 @@ theUpdate input state = state
     , theDanmaku = theDanmaku'
     }
     where
-        Just (newbullets, theDanmaku') = runDanmaku (playerPosition $ player state) (theDanmaku state)
+        Just (newbullets, theDanmaku') = runIdentity $ runDanmaku (playerPosition $ player state) (theDanmaku state)
 
 outputBackground :: ImageSet -> () -> IO ()
 outputBackground m _ = do
