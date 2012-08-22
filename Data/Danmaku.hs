@@ -1,14 +1,20 @@
-module Data.Danmaku where
+module Data.Danmaku (
+    -- * Basic Danmaku
+    DanmakuT,
+    Firing(..),
+    execDanmakuT, 
+    fire,
+    tick,
+    wait,
+    parallelDanmaku,
+) where
 
-import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Maybe
 import Control.Monad.Coroutine
 import Data.Maybe
 
-type DanmakuT i b m = Coroutine (Firing b) (ReaderT i m) ()
+type DanmakuT b m a = Coroutine (Firing b) m a
 
 data Firing b c = Fire b c | Tick c
 
@@ -19,34 +25,29 @@ instance Functor (Firing x) where
 instance Functor s => MonadTrans (Coroutine s) where -- 再定義しないとなぜか動かない
    lift = Coroutine . liftM Right
 
-runDanmaku :: Monad m => i -> DanmakuT i b m -> m (Maybe ([b], DanmakuT i b m))
-runDanmaku input danmaku = do
-    v <- runReaderT (resume danmaku) input
+execDanmakuT :: Monad m => DanmakuT b m a -> m (Maybe ([b], DanmakuT b m a))
+execDanmakuT danmaku = do
+    v <- resume danmaku
     case v of
         Left (Fire x cont) -> do
-            t <- runDanmaku input cont
+            t <- execDanmakuT cont
             return $ case t of
                 Just (xs, cont) -> Just (x : xs, cont)
                 Nothing -> Nothing
         Left (Tick cont) -> return $ Just ([], cont)
         _ -> return $ Nothing
 
-fire :: Monad m => b -> DanmakuT i b m
+fire :: Monad m => b -> DanmakuT b m ()
 fire x = suspend $ Fire x (return ())
 
-tick :: Monad m => DanmakuT i b m
+tick :: Monad m => DanmakuT b m ()
 tick = suspend $ Tick (return ())
 
-wait :: Monad m => Int -> DanmakuT i b m
+wait :: Monad m => Int -> DanmakuT b m ()
 wait = flip replicateM_ tick
 
-observe :: Monad m => Coroutine (Firing b) (ReaderT i m) i
-observe = lift ask
-
-parallelDanmaku :: Monad m => [DanmakuT i b m] -> DanmakuT i b m
+parallelDanmaku :: Monad m => [DanmakuT b m ()] -> DanmakuT b m ()
 parallelDanmaku xs = do
-    input <- observe
-    (bss, ds) <- lift $ lift $ liftM unzip $ liftM catMaybes $ mapM (runDanmaku input) xs
-    return ()
+    (bss, ds) <- lift $ liftM unzip $ liftM catMaybes $ mapM execDanmakuT xs
     mapM_ fire $ concat bss
     unless (null ds) $ tick >> parallelDanmaku ds
