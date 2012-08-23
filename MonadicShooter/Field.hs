@@ -1,13 +1,13 @@
 module MonadicShooter.Field where
 
 upperBound :: Float
-upperBound = 0.0
+upperBound = 240.0
 
 leftBound :: Float
-leftBound = 0.0
+leftBound = -240.0
 
 lowerBound :: Float
-lowerBound = 480.0
+lowerBound = -240.0
 
 rightBound :: Float
-rightBound = 480.0
+rightBound = 240.0

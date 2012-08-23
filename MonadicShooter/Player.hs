@@ -4,17 +4,16 @@ import qualified Data.Map as Map
 import Data.Vect
 import MonadicShooter.Input
 import MonadicShooter.Graphic
-import MonadicShooter.DXFI
+import Graphics.Gloss.Data.Picture
 
 data PlayerSettings = PlayerSettings
     {
         playerSpeed :: Float
         ,playerSlowRate :: Float
         ,playerAnimationPeriod :: Int
-        ,playerImage :: FilePath
-        ,playerImageNeutral :: [(Int, Int)]
-        ,playerImageLeft :: [(Int, Int)]
-        ,playerImageRight :: [(Int, Int)]
+        ,playerImageNeutral :: [String]
+        ,playerImageLeft :: [String]
+        ,playerImageRight :: [String]
         ,playerImageWidth :: Int
         ,playerImageHeight :: Int
     }
@@ -28,7 +27,7 @@ data Player = Player
 
 data PlayerMotion = PlayerNeutral | PlayerLeft | PlayerRight
 
-defaultPlayerSettings = PlayerSettings 4 0.5 20 "sanae.png" [(0, 0), (1, 0)] [(0, 1), (1, 1)] [(0, 2), (1, 2)] 48 48
+defaultPlayerSettings = PlayerSettings 4 0.5 20 ["sanaeC0", "sanaeC1"] ["sanaeL0", "sanaeL1"] ["sanaeR0", "sanaeR1"] 48 48
 
 updatePlayer :: PlayerSettings -> TheInput -> Player -> Player
 updatePlayer settings input (Player pos _ n) = Player pos' m'
@@ -42,20 +41,17 @@ updatePlayer settings input (Player pos _ n) = Player pos' m'
             (False, True) -> (1, PlayerRight)
             _ -> (0, PlayerNeutral)
         y = case (keyUp input, keyDown input) of
-            (True, False) -> -1
-            (False, True) -> 1
+            (True, False) -> 1
+            (False, True) -> -1
             _ -> 0
         v | x == 0 && y == 0 = Vec2 0 0
           | otherwise = normalize (Vec2 x y)
 
-outputPlayer :: PlayerSettings -> ImageSet -> Player -> IO ()
-outputPlayer settings images (Player (Vec2 x y) m n) = dxfi_DrawImage x' y' handle True
+drawPlayer :: PlayerSettings -> Map.Map String Picture -> Player -> Picture
+drawPlayer settings images (Player (Vec2 x y) m n) = Translate x y
+    $ images Map.! (img !! ((n * length img) `div` playerAnimationPeriod settings))
     where
-        img = case m of
+       img = case m of
             PlayerNeutral -> playerImageNeutral settings
             PlayerLeft -> playerImageLeft settings
             PlayerRight -> playerImageRight settings
-        handle = images
-            Map.! Matrix (playerImage settings) (img !! ((n * length img) `div` playerAnimationPeriod settings))
-        x' = floor x - playerImageWidth settings `div` 2
-        y' = floor y - playerImageHeight settings `div` 2
