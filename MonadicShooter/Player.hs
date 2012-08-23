@@ -48,7 +48,7 @@ updatePlayer settings input (Player pos _ n) = Player pos' m'
           | otherwise = normalize (Vec2 x y)
 
 drawPlayer :: PlayerSettings -> Map.Map String Picture -> Player -> Picture
-drawPlayer settings images (Player (Vec2 x y) m n) = Translate x y
+drawPlayer settings images (Player (Vec2 x y) m n) = Translate x y $ Rotate 0
     $ images Map.! (img !! ((n * length img) `div` playerAnimationPeriod settings))
     where
        img = case m of

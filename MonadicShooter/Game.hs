@@ -1,9 +1,9 @@
 ﻿module MonadicShooter.Game where
-
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State
 import Data.Vect
 import qualified Data.Map as Map
 import MonadicShooter.Graphic
@@ -14,14 +14,35 @@ import Data.Danmaku
 import System.Random
 import Graphics.Gloss.Interface.IO.Game
 import Graphics.Gloss.Data.Picture
+
+barrage0 :: DanmakuT RealBullet (ReaderT Vec2 (State Float)) ()
+barrage0 = forever $ do
+    playerPos <- lift ask
+    let center = Vec2 0 (120)
+    let a = angle2 (playerPos &- center)
+    forM_ [0..39] $ \i ->
+        fire $ RealBullet (sinCos (i / 40 * 2 * pi + a) &* 3) center "wedge-red"
+    wait 13
+
+barrage1 :: DanmakuT RealBullet (ReaderT Vec2 (State Float)) ()
+barrage1 = forever $ do
+    playerPos <- lift ask
+    angle <- lift $ lift get
+    let center = Vec2 0 (180)
+    forM_ [0..49] $ \i ->
+        fire $ RealBullet (sinCos (i / 50 * 2 * pi + angle) &* 2) center "wedge-blue"
+    lift $ lift $ put (angle + pi / 100)
+    wait 12
+
 data TheState = Playing
     {
         randomGen :: StdGen
         ,inputState :: TheInput
         ,player :: Player
-		,bullets :: [RealBullet]
-		,background :: ()
-        ,theDanmaku :: DanmakuT RealBullet (Reader Vec2) ()
+        ,bullets :: [RealBullet]
+        ,background :: ()
+        ,theDanmaku :: DanmakuT RealBullet (ReaderT Vec2 (State Float)) ()
+        ,danmakuState :: Float
     }
 
 globalInput :: Event -> TheState -> IO TheState
@@ -33,13 +54,16 @@ globalUpdate :: Float -> TheState -> IO TheState
 globalUpdate _ state = do
     let state' = state {
           player = updatePlayer defaultPlayerSettings (inputState state) (player state)
-        , bullets = filter isActive (map updateBullet (bullets state)) ++ newbullets
-        , theDanmaku = theDanmaku'
+         , bullets = filter isActive (map updateBullet (bullets state)) ++ newbullets
+         , theDanmaku = theDanmaku'
+         , danmakuState = d'
         }
     globalSound state'
     return state'
     where
-        Just (newbullets, theDanmaku') = execDanmakuT (theDanmaku state) `runReader` (playerPosition $ player state)
+        (Just (newbullets, theDanmaku'), d') = execDanmakuT (theDanmaku state)
+            `runReaderT` (playerPosition $ player state)
+            `runState` (danmakuState state)
         
 initialState :: IO TheState
 initialState = do
@@ -51,6 +75,7 @@ initialState = do
         `id` []
         `id` ()
         `id` parallelDanmaku [barrage0, barrage1]
+        `id` 0
 
 globalDraw :: Map.Map String Picture -> TheState -> IO Picture
 globalDraw m state = return $ Pictures $
@@ -94,20 +119,3 @@ gameMain = do
         `id` globalDraw images
         `id` globalInput
         `id` globalUpdate
-
-barrage0 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage0 = forever $ do
-    playerPos <- lift ask
-    let center = Vec2 0 (120)
-    let a = angle2 (playerPos &- center)
-    forM_ [0..59] $ \i ->
-        fire $ RealBullet (sinCos (i / 60 * 2 * pi + a) &* 3) center "wedge-red"
-    wait 30
-
-barrage1 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage1 = forever $ do
-    playerPos <- lift ask
-    let center = Vec2 0 (180)
-    forM_ [0..49] $ \i ->
-        fire $ RealBullet (sinCos (i / 50 * 2 * pi) &* 2) center "wedge-blue"
-    wait 27

@@ -1,3 +1,4 @@
+{-# LANGUAGE Rank2Types #-}
 module Data.Danmaku (
     -- * Basic Danmaku
     DanmakuT,
