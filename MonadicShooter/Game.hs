@@ -12,10 +12,8 @@ import MonadicShooter.Player
 import MonadicShooter.Input
 import Data.Danmaku
 import System.Random
-
 import Graphics.Gloss.Interface.IO.Game
 import Graphics.Gloss.Data.Picture
-
 data TheState = Playing
     {
         randomGen :: StdGen
@@ -25,7 +23,6 @@ data TheState = Playing
 		,background :: ()
         ,theDanmaku :: DanmakuT RealBullet (Reader Vec2) ()
     }
-
 
 globalInput :: Event -> TheState -> IO TheState
 globalInput ev state = do
@@ -86,7 +83,6 @@ loadImages = Map.fromList <$> concat <$> sequence [loadImageByRects "images/Shot
             ]
         ]
          
-
 gameMain = do
     state <- initialState
     images <- loadImages
@@ -102,7 +98,7 @@ gameMain = do
 barrage0 :: DanmakuT RealBullet (Reader Vec2) ()
 barrage0 = forever $ do
     playerPos <- lift ask
-    let center = Vec2 0 0
+    let center = Vec2 0 (120)
     let a = angle2 (playerPos &- center)
     forM_ [0..59] $ \i ->
         fire $ RealBullet (sinCos (i / 60 * 2 * pi + a) &* 3) center "wedge-red"
@@ -111,7 +107,7 @@ barrage0 = forever $ do
 barrage1 :: DanmakuT RealBullet (Reader Vec2) ()
 barrage1 = forever $ do
     playerPos <- lift ask
-    let center = Vec2 0 (-60)
+    let center = Vec2 0 (180)
     forM_ [0..49] $ \i ->
         fire $ RealBullet (sinCos (i / 50 * 2 * pi) &* 2) center "wedge-blue"
     wait 27
