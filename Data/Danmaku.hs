@@ -8,14 +8,12 @@ module Data.Danmaku (
     tick,
     wait,
     parallelDanmaku,
-    embedDanmakuState,
+    embedDanmakuState
 ) where
 import Control.Monad
 import Control.Monad.Trans
-import Control.Monad.Trans.State
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Writer
-import Control.Monad.Trans.Maybe
+import Control.Monad.State
+import Control.Monad.Reader
 import Control.Monad.Coroutine
 import Data.Maybe
 import Data.Bullet

@@ -1,20 +1,17 @@
 ﻿module MonadicShooter.Game where
 
 import Control.Applicative
-import Control.Monad
-import Control.Monad.Trans
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.Writer
-import Control.Monad.Trans.State
 import Data.Vect
 import qualified Data.Map as Map
 import MonadicShooter.DXFI
 import MonadicShooter.Graphic
-import MonadicShooter.Bullet
 import MonadicShooter.Input
 import MonadicShooter.Player
-import Data.Bullet
+import MonadicShooter.Shell
+import MonadicShooter.Barrage
 import Data.Danmaku
+import Control.Monad
+import Control.Monad.Reader
 import System.Random
 
 data Game input state = Game {
@@ -37,30 +34,9 @@ data TheState = Playing
         ,player :: Player
 		,bullets :: [RealBullet]
 		,background :: ()
-        ,theDanmaku :: DanmakuT RealBullet (Reader Vec2) ()
+        ,barrage :: DanmakuT RealBullet (Reader Vec2) ()
     }
 
-barrage0 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage0 = forever $ do
-    playerPos <- lift ask
-    let a = angle2 (playerPos &- center)
-    forM_ [0..39] $ \i ->
-        fire $ RealBullet (sinCos (i / 40 * 2 * pi + a) &* 3) center 0
-    wait 13
-    where
-        center = Vec2 240 120
-
-barrage1 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage1 = embedDanmakuState 0 $ forever $ do
-    playerPos <- lift $ lift $ ask
-    angle <- lift get
-    forM_ [0..49] $ \i ->
-        fire $ RealBullet (sinCos (i / 50 * 2 * pi + angle) &* 2) center 1
-    lift $ put (angle + pi / 100)
-    
-    wait 12
-    where
-        center = Vec2 240 60
 
 getTheGame :: IO (Game TheInput TheState)
 getTheGame = Game initState theInput theUpdate <$> fmap theOutput loadImages
@@ -68,17 +44,17 @@ getTheGame = Game initState theInput theUpdate <$> fmap theOutput loadImages
 initState :: IO TheState
 initState = do
     gen <- getStdGen
-    return $ Playing gen (Player (Vec2 240 360) PlayerNeutral 0) [] () (parallelDanmaku [barrage0, barrage1])
+    return $ Playing gen (Player (Vec2 240 360) PlayerNeutral 0) [] () globalBarrage
 
 theUpdate :: TheInput -> TheState -> TheState
 theUpdate input state = state
     { player = updatePlayer defaultPlayerSettings input (player state)
-    , bullets = filter isActive (map updateBullet (bullets state)) ++ newBullets
-    , theDanmaku = theDanmaku'
+    , bullets = filter isActive (map updateBullet (bullets state ++ newBullets))
+    , barrage = barrage'
     }
     where
-        (Just theDanmaku', newBullets) = evolveDanmakuT (theDanmaku state)
-            `runReader` (playerPosition $ player state)
+        (Just barrage', newBullets) = evolveDanmakuT (barrage state)
+            `runReader` playerPosition (player state)
         
 outputBackground :: ImageSet -> () -> IO ()
 outputBackground m _ = do
