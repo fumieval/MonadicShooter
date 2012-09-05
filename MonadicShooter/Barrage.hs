@@ -4,39 +4,64 @@ import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Reader
 import Control.Monad.State
-import MonadicShooter.Shell
+import Control.Monad.Writer
+import Data.Array
 import Data.Vect
 import Data.Danmaku
+import Data.Bullet
 import Data.Bullet.Actual
+import MonadicShooter.Shell
+import MonadicShooter.Field
 
-globalBarrage = parallelDanmaku [barrage0, barrage1, barrage2]
+globalBarrage = youmu
 
-barrage0 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage0 = forever $ do
+youmu = forever $ youmu0 >> youmu1 >> wait 120
+
+youmu0 :: DanmakuT RealBullet (Reader Vec2) ()
+youmu0 = mapShot (either (const Nothing) Just) $ flatten $ do
+    fire $ gen (sine (-3)) "circle-cyan" 0
+    fire $ gen (sine 3) "circle-yellow" 2
+    tick
+    wait 360
+    where
+        gen orbit color offset = embedToBullet orbit
+            $ embedDanmakuState 0
+            $ forever $ do
+            n <- get
+            (center, _) <- ask
+            wait offset
+            forM_ [0..n] $ fire . realBulletS color
+                . boundBy (inRect (Vec2 0 (-180)) lowerRight)
+                . \i -> uniformBullet ((i - n/2) / 20 * 2 * pi + pi / 2) 1.5 center
+            tick
+            wait 4
+            put $ n + 1
+        
+        sine d = takeBullet 270
+            $ embedBulletState (pi / 2)
+            $ bulletWithVelocity (Vec2 240 240)
+            $ forever $ do
+            angle <- get
+            yield $ Vec2 (sin angle * d) (-2.5)
+            put $ angle + pi / 80
+        
+youmu1 :: DanmakuT RealBullet (Reader Vec2) ()
+youmu1 = mapShot (either (const Nothing) Just) $ flatten $ replicateM_ 2 $ do
     playerPos <- ask
-    let a = angle2 (playerPos &- center)
-    forM_ [0..29] $ \i ->
-        fire $ uniformBullet ((i + 0.5) / 30 * 2 * pi + a) 3 center `realBullet` 0
-    wait 30
-    where
-        center = Vec2 240 80
 
-barrage1 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage1 = embedDanmakuState 0 $ forever $ do
-    angle <- get
-    forM_ [0..9] $ \i ->
-        fire $ uniformBullet (i / 40 * 2 * pi + angle) 3 center `realBullet` 1
-    put (angle + pi / 15)
-    wait 12
-    where
-        center = Vec2 200 120
+    forM_ [Vec2 (-160) 0, Vec2 0 0, Vec2 160 0]
+        $ fire . gen "wedge-blue" (uniformBullet (pi+pi/16) 18 $ Vec2 400 120)
+          . (playerPos &+)
+    wait 40
+    
+    forM_ [Vec2 (-240) 0, Vec2 (-80) 0, Vec2 80 0, Vec2 240 0]
+        $ fire . gen "wedge-red" (uniformBullet (-pi/16) 18 $ Vec2 80 120)
+          . (playerPos &+)
+    wait 40
 
-barrage2 :: DanmakuT RealBullet (Reader Vec2) ()
-barrage2 = embedDanmakuState (pi/2) $ forever $ do
-    angle <- get
-    forM_ [0..9] $ \i ->
-        fire $ uniformBullet (i / 40 * 2 * pi + angle) 3 center `realBullet` 2
-    put (angle - pi / 15)
-    wait 12
     where
-        center = Vec2 280 120
+        gen img orbit target = embedToBullet orbit $ forever $ do
+            (center, _) <- ask
+            forM_ [2,4,6,8] $ \speed -> fire $ realBullet img $ boundBy inTheField
+                $ uniformBullet (angle2 $ target &- center) speed center
+            wait 2

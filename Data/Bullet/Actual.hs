@@ -3,6 +3,7 @@ runBulletT,
 ActualBulletT,
 ActualBullet,
 Yield(..),
+yield,
 PosAndArg,
 boundBy,
 uniformBullet,
@@ -16,10 +17,11 @@ import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors
 import Data.Functor.Identity
 import Data.Bullet
+import Debug.Trace
 
 type PosAndArg = (Vec2, Float)
 
-type ActualBulletT = BulletT (Yield PosAndArg)
+type ActualBulletT = BulletT PosAndArg
 
 type ActualBullet = ActualBulletT Identity
 
@@ -27,9 +29,18 @@ boundBy :: Monad m => (Vec2 -> Bool) -> ActualBulletT m () -> ActualBulletT m ()
 boundBy p b = do
     x <- lift $ runBulletT b
     case x of
-        Just (Yield (pos, _) cont) | p pos -> boundBy p cont
+        Left (Yield (pos, a) cont) | p pos -> yield (pos, a) >> boundBy p cont
         _ -> return ()
 
+boundSecondary :: Monad m => (Vec2 -> Bool) -> ActualBulletT m () -> ActualBulletT m ()
+boundSecondary p b = do
+    x <- lift $ runBulletT b
+    case x of
+        Left (Yield (pos, a) cont)
+            | p pos -> yield (pos, a) >> boundBy p cont
+            | otherwise -> boundSecondary p cont
+        _ -> return ()
+    
 uniformBullet :: Monad m => Float -- angle
     -> Float -- speed
     -> Vec2 -- initial position
@@ -37,14 +48,14 @@ uniformBullet :: Monad m => Float -- angle
 uniformBullet a s pos = yield (pos, a) >> uniformBullet a s (pos &+ sinCos a &* s)
 
 linearBullet :: Monad m => Float -> Vec2
-    -> BulletT (Yield Float) m a
+    -> BulletT Float m a
     -> ActualBulletT m a
 linearBullet a pos = bulletWithVelocity pos . mapSuspension sMap
     where
         sMap (Yield s x) = Yield (sinCos a &* s) x
 
 bulletWithVelocity :: Monad m => Vec2
-    -> BulletT (Yield Vec2) m a
+    -> BulletT Vec2 m a
     -> ActualBulletT m a
 bulletWithVelocity pos b = do
     r <- lift $ resume b

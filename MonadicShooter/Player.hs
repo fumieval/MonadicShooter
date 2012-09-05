@@ -12,9 +12,9 @@ data PlayerSettings = PlayerSettings
         ,playerSlowRate :: Float
         ,playerAnimationPeriod :: Int
         ,playerImage :: FilePath
-        ,playerImageNeutral :: [(Int, Int)]
-        ,playerImageLeft :: [(Int, Int)]
-        ,playerImageRight :: [(Int, Int)]
+        ,playerImageNeutral :: [String]
+        ,playerImageLeft :: [String]
+        ,playerImageRight :: [String]
         ,playerImageWidth :: Int
         ,playerImageHeight :: Int
     }
@@ -28,7 +28,7 @@ data Player = Player
 
 data PlayerMotion = PlayerNeutral | PlayerLeft | PlayerRight
 
-defaultPlayerSettings = PlayerSettings 4 0.5 20 "sanae.png" [(0, 0), (1, 0)] [(0, 1), (1, 1)] [(0, 2), (1, 2)] 48 48
+defaultPlayerSettings = PlayerSettings 4 0.5 20 "sanae.png" ["sanaeC0", "sanaeC1"] ["sanaeL0", "sanaeL1"] ["sanaeR0", "sanaeR1"] 48 48
 
 updatePlayer :: PlayerSettings -> TheInput -> Player -> Player
 updatePlayer settings input (Player pos _ n) = Player pos' m'
@@ -48,7 +48,7 @@ updatePlayer settings input (Player pos _ n) = Player pos' m'
         v | x == 0 && y == 0 = Vec2 0 0
           | otherwise = normalize (Vec2 x y)
 
-outputPlayer :: PlayerSettings -> ImageSet -> Player -> IO ()
+outputPlayer :: PlayerSettings -> Map.Map String Handle -> Player -> IO ()
 outputPlayer settings images (Player (Vec2 x y) m n) = dxfi_DrawImage x' y' handle True
     where
         img = case m of
@@ -56,6 +56,6 @@ outputPlayer settings images (Player (Vec2 x y) m n) = dxfi_DrawImage x' y' hand
             PlayerLeft -> playerImageLeft settings
             PlayerRight -> playerImageRight settings
         handle = images
-            Map.! Matrix (playerImage settings) (img !! ((n * length img) `div` playerAnimationPeriod settings))
+            Map.! (img !! ((n * length img) `div` playerAnimationPeriod settings))
         x' = floor x - playerImageWidth settings `div` 2
         y' = floor y - playerImageHeight settings `div` 2
