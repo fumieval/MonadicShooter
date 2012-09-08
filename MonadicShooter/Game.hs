@@ -1,101 +1,105 @@
 ﻿module MonadicShooter.Game where
 
 import Control.Applicative
-import Data.Vect
+import Data.Vect.Double
 import qualified Data.Map as Map
-import MonadicShooter.DXFI
 import MonadicShooter.Graphic
 import MonadicShooter.Input
 import MonadicShooter.Player
 import MonadicShooter.Shell
 import MonadicShooter.Barrage
-import Data.Danmaku
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.Writer.Strict
+import Control.Monad.State.Strict
+import Control.Monad.Danmaku
+import Control.Monad.Bullet
 import System.Random
+import Data.Maybe
 
-data Game input state = Game {
-    initialState :: IO state
-    ,acquireInput :: IO input
-    ,update :: input -> state -> state
-    ,output :: state -> IO ()
-    }
+newGame :: IO (BulletT () (ReaderT TheInput (WriterT Picture IO)) ())
+newGame = do
+    images <- loadImages
+    return $ createGame images (Vec2 240 360) globalBarrage 3
+  
+runGame :: BulletT () (ReaderT TheInput (WriterT Picture IO)) ()
+    -> IO (Maybe (BulletT () (ReaderT TheInput (WriterT Picture IO)) ()))
+runGame game = do
+    input <- getTheInput
+    (r, w) <- runWriterT $ runBulletT game `runReaderT` input 
+    drawPicture w
+    case r of
+        Left (Yield _ cont) -> return (Just cont)
+        Right _ -> return Nothing
 
-runGame :: Game i s -> s -> IO s
-runGame game state = do
-    input <- acquireInput game
-    let state' = update game input state
-    output game state'
-    return state'
-
-data TheState = Playing
-    {
-        randomGen :: StdGen
-        ,player :: Player
-		,bullets :: [RealBullet]
-		,background :: ()
-        ,barrage :: DanmakuT RealBullet (Reader Vec2) ()
-    }
-
-
-getTheGame :: IO (Game TheInput TheState)
-getTheGame = Game initState theInput theUpdate <$> fmap theOutput loadImages
-
-initState :: IO TheState
-initState = do
-    gen <- getStdGen
-    return $ Playing gen (Player (Vec2 240 360) PlayerNeutral 0) [] () globalBarrage
-
-theUpdate :: TheInput -> TheState -> TheState
-theUpdate input state = state
-    { player = updatePlayer defaultPlayerSettings input (player state)
-    , bullets = filter isActive (map updateBullet (bullets state ++ newBullets))
-    , barrage = barrage'
-    }
-    where
-        (Left barrage', newBullets) = evolveDanmakuT (barrage state)
-            `runReader` playerPosition (player state)
-        
-outputBackground :: Map.Map String Handle -> () -> IO ()
-outputBackground m _ = do
-    -- background image
-    dxfi_DrawImage 0 0 (m Map.! "background-80px-grid") False
-    -- background music
-    return ()
+createGame
+  :: Map.Map String Picture
+     -> Vec2
+     -> DanmakuT Shell' (Reader Vec2) a2
+     -> Int
+     -> BulletT () (ReaderT TheInput (WriterT Picture IO)) ()
+createGame images initialPlayerPos initialDanmaku initialRest = 
+    embedBulletState ([], initialDanmaku, newPlayer, initialRest) $ forever $ do
+    (shells, danmaku, player, rest) <- get
     
-theOutput :: Map.Map String Handle -> TheState -> IO ()
-theOutput m state = do
-    outputBackground m                       $ background state
-    outputPlayer defaultPlayerSettings m     $ player state
-    mapM_ (outputBullet m) $ bullets state
+    -- lift $ lift $ lift $ lift $ print $ length shells    
+    tell $ images Map.! "background-80px-grid"
+    
+    (player', rest', playerPos) <- do
+        r <- lift $ lift $ runBulletT player
+        case r of
+            Left (Yield p cont) -> return (cont, rest, p)
+            Right _ -> return (newPlayer, rest - 1, initialPlayerPos)
+    
+    shells' <- liftM catMaybes $ forM shells $ \shell -> do
+        r <- lift $ lift $ lift $ runBulletT shell
+        case r of
+            Left (Yield (pos, r) cont)
+                | distance pos playerPos < r -> return Nothing
+                | otherwise -> return $ Just cont
+            _ -> return Nothing
+    
+    (danmaku', newshells) <- do
+        (cont, xs) <- return $ evolveDanmakuT danmaku　`runReader` playerPos
+        case cont of
+            Left x -> return (x, map ($images) xs)
+            Right _ -> return (initialDanmaku, map ($images) xs)
 
-loadImages :: IO (Map.Map String Handle)
+    put (newshells ++ shells', danmaku', player', rest')
+    yield ()
+    where
+        newPlayer = createPlayer defaultPlayerSettings images initialPlayerPos
+
+loadImages :: IO (Map.Map String Picture)
 loadImages = Map.fromList <$> concat <$> sequence [loadImageByRects "Shot.png" [
-              ("wedge-red",     (19, 19, 1, 42))
-              ,("wedge-green",  (19, 19, 21, 42))
-              ,("wedge-blue",   (19, 19, 41, 42))
-              ,("wedge-yellow", (19, 19, 61, 42))
-              ,("wedge-pink",   (19, 19, 81, 42))
-              ,("wedge-cyan",   (19, 19, 101, 42))
-              ,("wedge-white",  (19, 19, 121, 42))
-              ,("wedge-orange", (19, 19, 141, 42))
-              ,("circle-red",     (19, 19, 1, 1))
-              ,("circle-green",  (19, 19, 21, 1))
-              ,("circle-blue",   (19, 19, 41, 1))
-              ,("circle-yellow", (19, 19, 61, 1))
-              ,("circle-pink",   (19, 19, 81, 1))
-              ,("circle-cyan",   (19, 19, 101, 1))
-              ,("circle-white",  (19, 19, 121, 1))
-              ,("circle-orange", (19, 19, 141, 1))
+               (b, "wedge-red",     (19, 19, 1, 42))
+              ,(b, "wedge-green",  (19, 19, 21, 42))
+              ,(b, "wedge-blue",   (19, 19, 41, 42))
+              ,(b, "wedge-yellow", (19, 19, 61, 42))
+              ,(b, "wedge-pink",   (19, 19, 81, 42))
+              ,(b, "wedge-cyan",   (19, 19, 101, 42))
+              ,(b, "wedge-white",  (19, 19, 121, 42))
+              ,(b, "wedge-orange", (19, 19, 141, 42))
+              ,(b_sym, "circle-red",     (19, 19, 1, 1))
+              ,(b_sym, "circle-green",  (19, 19, 21, 1))
+              ,(b_sym, "circle-blue",   (19, 19, 41, 1))
+              ,(b_sym, "circle-yellow", (19, 19, 61, 1))
+              ,(b_sym, "circle-pink",   (19, 19, 81, 1))
+              ,(b_sym, "circle-cyan",   (19, 19, 101, 1))
+              ,(b_sym, "circle-white",  (19, 19, 121, 1))
+              ,(b_sym, "circle-orange", (19, 19, 141, 1))
               ]
-        ,return <$> loadImage "background-80px-grid.png" "background-80px-grid"
+        ,return <$> loadImage (ImageD (0,0)) "background-80px-grid.png" "background-80px-grid"
         ,loadImageByRects "sanae.png" [
-            ("sanaeC0", (48, 48, 0, 0))
-            ,("sanaeC1", (48, 48, 48, 0))
-            ,("sanaeL0", (48, 48, 0, 48))
-            ,("sanaeL1", (48, 48, 48, 48))
-            ,("sanaeR0", (48, 48, 0, 96))
-            ,("sanaeR1", (48, 48, 48, 96))
+            (ImageD (0, 0), "sanaeC0", (48, 48, 0, 0))
+            ,(ImageD (0, 0), "sanaeC1", (48, 48, 48, 0))
+            ,(ImageD (0, 0), "sanaeL0", (48, 48, 0, 48))
+            ,(ImageD (0, 0), "sanaeL1", (48, 48, 48, 48))
+            ,(ImageD (0, 0), "sanaeR0", (48, 48, 0, 96))
+            ,(ImageD (0, 0), "sanaeR1", (48, 48, 48, 96))
             ]
         ]
+    where
+        b = Rotate (pi/2) . Image
+        b_sym = ImageD (9, 9)
          

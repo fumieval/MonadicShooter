@@ -1,16 +1,31 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 module Main where
 import Control.Monad
 import Control.Applicative
-
+import MonadicShooter.Input
 import MonadicShooter.Game
-import MonadicShooter.DXFI
 import Foreign.C.String
 import System.IO
 
-mainLoop game state startTime t = do
+foreign import ccall "DXFI_Initialize" dxfi_Initialize :: IO ()
+foreign import ccall "DXFI_Release" dxfi_Release :: IO ()
+foreign import ccall "DXFI_GetTickCount" dxfi_GetTickCount :: Bool -> IO Int
+foreign import ccall "DXFI_SetLogging" dxfi_SetLogging :: Bool -> IO ()
+foreign import ccall "DXFI_SetWindowMode" dxfi_SetWindowMode :: Int -> IO ()
+foreign import ccall "DXFI_SetWindowCaption" dxfi_SetWindowCaption :: CWString -> IO ()
+foreign import ccall "DXFI_SetDrawingDestination" dxfi_SetDrawingDestination :: Int -> IO ()
+foreign import ccall "DXFI_Wait" dxfi_Wait :: Int -> IO ()
+foreign import ccall "DXFI_ClearScreen" dxfi_ClearScreen :: IO ()
+foreign import ccall "DXFI_FlipScreen" dxfi_FlipScreen :: IO ()
+foreign import ccall "DXFI_AcceptMessage" processMessage  :: IO Int
+
+setWindowCaption :: String -> IO ()
+setWindowCaption = flip withCWString dxfi_SetWindowCaption
+
+mainLoop game startTime t = do
     
     dxfi_ClearScreen
-    state' <- runGame game state
+    cont <- runGame game
     dxfi_FlipScreen
     
     time <- dxfi_GetTickCount False
@@ -23,18 +38,18 @@ mainLoop game state startTime t = do
     p <- processMessage
     esc <- dxfi_IsKeyPressed 0x01
     
-    when (p == 0 && esc == 0) $ mainLoop game state' startTime' t'
-
-main :: IO ()
+    case cont of
+        Just g -> when (p == 0 && esc == 0) $ mainLoop g startTime' t'
+        Nothing -> return ()
+    
 main = do
     initialize
     
-    game <- getTheGame
-    state <- initialState game
+    game <- newGame
     startTime <- dxfi_GetTickCount False
     
     setWindowCaption "MonadicShooter [Done.]"
-    mainLoop game state startTime 0
+    mainLoop game startTime 0
     
     terminate
 

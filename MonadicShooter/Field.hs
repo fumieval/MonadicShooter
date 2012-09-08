@@ -1,16 +1,16 @@
 module MonadicShooter.Field where
-import Data.Vect
+import Data.Vect.Double
 
-upperBound :: Float
+upperBound :: Double
 upperBound = 0.0
 
-leftBound :: Float
+leftBound :: Double
 leftBound = 0.0
 
-lowerBound :: Float
+lowerBound :: Double
 lowerBound = 480.0
 
-rightBound :: Float
+rightBound :: Double
 rightBound = 480.0
 
 upperLeft :: Vec2

@@ -1,7 +1,8 @@
-﻿module MonadicShooter.Input where
-
+﻿{-# LANGUAGE ForeignFunctionInterface #-}
+module MonadicShooter.Input where
 import Control.Applicative
-import MonadicShooter.DXFI (dxfi_IsKeyPressed)
+
+foreign import ccall "DXFI_IsKeyPressed" dxfi_IsKeyPressed :: Int -> IO Int
 
 data TheInput = TheInput 
     {    
@@ -14,8 +15,8 @@ data TheInput = TheInput
         ,keyC :: Bool
     } deriving Show
 
-theInput :: IO TheInput -- TODO: load configurations from file
-theInput = TheInput <$> chk left <*> chk right <*> chk up <*> chk down <*> chk a <*> chk b <*> chk c
+getTheInput :: IO TheInput -- TODO: load configurations from file
+getTheInput = TheInput <$> chk left <*> chk right <*> chk up <*> chk down <*> chk a <*> chk b <*> chk c
     where
         defaultConfig = (0xCB, 0xCD, 0xC8, 0xD0, 0x2C, 0x2D, 0x2A)
         (left, right, up, down, a, b, c) = defaultConfig

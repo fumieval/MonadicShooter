@@ -1,36 +1,36 @@
 module Data.Bullet.Actual (
-runBulletT,
-ActualBulletT,
-ActualBullet,
-Yield(..),
-yield,
-PosAndArg,
-boundBy,
-uniformBullet,
-linearBullet,
-bulletWithVelocity
+    runBulletT,
+    ActualBulletT,
+    ActualBullet,
+    Yield(..),
+    yield,
+    PosAndArg,
+    boundBy,
+    uniformBullet,
+    linearBullet,
+    bulletWithVelocity
 ) where
-import Data.Vect
+import Data.Vect.Double
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors
+import Control.Monad.Bullet
 import Data.Functor.Identity
-import Data.Bullet
-import Debug.Trace
 
-type PosAndArg = (Vec2, Float)
+type PosAndArg = (Vec2, Double)
 
 type ActualBulletT = BulletT PosAndArg
 
 type ActualBullet = ActualBulletT Identity
 
 boundBy :: Monad m => (Vec2 -> Bool) -> ActualBulletT m () -> ActualBulletT m ()
-boundBy p b = do
-    x <- lift $ runBulletT b
-    case x of
-        Left (Yield (pos, a) cont) | p pos -> yield (pos, a) >> boundBy p cont
-        _ -> return ()
+boundBy p bullet = bound bullet where
+    bound b = do
+        x <- lift $ runBulletT b
+        case x of
+            Left (Yield (pos, a) cont) | p pos -> yield (pos, a) >> bound cont
+            _ -> return ()
 
 boundSecondary :: Monad m => (Vec2 -> Bool) -> ActualBulletT m () -> ActualBulletT m ()
 boundSecondary p b = do
@@ -41,14 +41,14 @@ boundSecondary p b = do
             | otherwise -> boundSecondary p cont
         _ -> return ()
     
-uniformBullet :: Monad m => Float -- angle
-    -> Float -- speed
+uniformBullet :: Monad m => Double -- angle
+    -> Double -- speed
     -> Vec2 -- initial position
     -> ActualBulletT m a
 uniformBullet a s pos = yield (pos, a) >> uniformBullet a s (pos &+ sinCos a &* s)
 
-linearBullet :: Monad m => Float -> Vec2
-    -> BulletT Float m a
+linearBullet :: Monad m => Double -> Vec2
+    -> BulletT Double m a
     -> ActualBulletT m a
 linearBullet a pos = bulletWithVelocity pos . mapSuspension sMap
     where
