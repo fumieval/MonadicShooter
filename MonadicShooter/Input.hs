@@ -20,4 +20,6 @@ getTheInput = TheInput <$> chk left <*> chk right <*> chk up <*> chk down <*> ch
     where
         defaultConfig = (0xCB, 0xCD, 0xC8, 0xD0, 0x2C, 0x2D, 0x2A)
         (left, right, up, down, a, b, c) = defaultConfig
-        chk = fmap toEnum . dxfi_IsKeyPressed
+        chk x = do
+            v <- dxfi_IsKeyPressed x
+            return (v /= 0)

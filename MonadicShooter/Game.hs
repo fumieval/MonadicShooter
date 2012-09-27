@@ -1,4 +1,5 @@
-﻿module MonadicShooter.Game where
+﻿{-# LANGUAGE ScopedTypeVariables, FlexibleContexts #-}
+module MonadicShooter.Game where
 
 import Control.Applicative
 import Data.Vect.Double
@@ -12,6 +13,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Writer.Strict
 import Control.Monad.State.Strict
+import Control.Monad.RWS.Strict
 import Control.Monad.Danmaku
 import Control.Monad.Bullet
 import System.Random
@@ -20,7 +22,7 @@ import Data.Maybe
 newGame :: IO (BulletT () (ReaderT TheInput (WriterT Picture IO)) ())
 newGame = do
     images <- loadImages
-    return $ createGame images (Vec2 240 360) globalBarrage 3
+    return $ createGame images (Vec2 240 360) (globalBarrage images) 3
   
 runGame :: BulletT () (ReaderT TheInput (WriterT Picture IO)) ()
     -> IO (Maybe (BulletT () (ReaderT TheInput (WriterT Picture IO)) ()))
@@ -32,43 +34,56 @@ runGame game = do
         Left (Yield _ cont) -> return (Just cont)
         Right _ -> return Nothing
 
-createGame
-  :: Map.Map String Picture
+
+createGame :: Map.Map String Picture
      -> Vec2
-     -> DanmakuT Shell' (Reader Vec2) a2
+     -> DanmakuT (Shell (ReaderT r IO)) r (ReaderT Vec2 IO) b
      -> Int
      -> BulletT () (ReaderT TheInput (WriterT Picture IO)) ()
-createGame images initialPlayerPos initialDanmaku initialRest = 
-    embedBulletState ([], initialDanmaku, newPlayer, initialRest) $ forever $ do
-    (shells, danmaku, player, rest) <- get
+createGame images initialPlayerPos initialDanmaku initialRest = game [] (executeDanmaku initialDanmaku) newPlayer initialRest where
+    game shells danmaku player rest = do
+        
+        tell $ images Map.! "background-80px-grid"
+        
+        (player', rest', playerPos) <- do
+            r <- lift $ runBulletT player
+            case r of
+                Left (Yield p cont) -> return (cont, rest, p)
+                Right _ -> return (newPlayer, rest - 1, initialPlayerPos)
+        
+        (r, shells', pics) <- lift $ lift $ lift $ runRWST (runBulletT danmaku) playerPos shells
+        let danmaku' = case r of
+                Left (Yield _ cont) -> cont
+                Right _ -> undefined
+        
+        tell pics
+        
+        yield ()
+        
+        game shells' danmaku' player' rest'
     
-    -- lift $ lift $ lift $ lift $ print $ length shells    
-    tell $ images Map.! "background-80px-grid"
-    
-    (player', rest', playerPos) <- do
-        r <- lift $ lift $ runBulletT player
-        case r of
-            Left (Yield p cont) -> return (cont, rest, p)
-            Right _ -> return (newPlayer, rest - 1, initialPlayerPos)
-    
-    shells' <- liftM catMaybes $ forM shells $ \shell -> do
-        r <- lift $ lift $ lift $ runBulletT shell
-        case r of
-            Left (Yield (pos, r) cont)
-                | distance pos playerPos < r -> return Nothing
-                | otherwise -> return $ Just cont
-            _ -> return Nothing
-    
-    (danmaku', newshells) <- do
-        (cont, xs) <- return $ evolveDanmakuT danmaku　`runReader` playerPos
-        case cont of
-            Left x -> return (x, map ($images) xs)
-            Right _ -> return (initialDanmaku, map ($images) xs)
+    newPlayer = createPlayer defaultPlayerSettings images initialPlayerPos
 
-    put (newshells ++ shells', danmaku', player', rest')
-    yield ()
-    where
-        newPlayer = createPlayer defaultPlayerSettings images initialPlayerPos
+executeDanmaku :: Monad m => DanmakuT (Shell (ReaderT r m)) r (ReaderT Vec2 m) b
+    -> BulletT () (RWST Vec2 Picture [Shell (ReaderT r m)] m) b
+executeDanmaku danmaku = do
+    playerPos <- ask
+    shells :: [Shell (ReaderT r m)] <- get
+    r <- lift $ lift $ evolveDanmakuT danmaku `runReaderT` playerPos
+    case r of
+        Left (Yield (newshells, d) cont) -> do
+            shells' <- lift $ forM shells $ \shell -> do
+                (r, w) <- lift $ runWriterT (runBulletT shell) `runReaderT` d
+                tell w
+                case r of
+                    Left (Yield (pos, r) cont)
+                        | distance pos playerPos < r -> return []
+                        | otherwise -> return [cont]
+                    Right _ -> return []
+            put $ newshells ++ concat shells'
+            yield ()
+            executeDanmaku cont
+        Right a -> return a
 
 loadImages :: IO (Map.Map String Picture)
 loadImages = Map.fromList <$> concat <$> sequence [loadImageByRects "Shot.png" [

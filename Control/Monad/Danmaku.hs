@@ -1,4 +1,4 @@
-
+{-# LANGUAGE BangPatterns #-}
 module Control.Monad.Danmaku (
     -- * Danmaku definition
     DanmakuT,
@@ -8,7 +8,7 @@ module Control.Monad.Danmaku (
     -- * Operations in Danmaku
     wait,    
     evolveDanmakuT,
-    mapShot,
+    mapFire,
     -- * Transformation and Composition in Danmaku
     emptyDanmaku,
     parallelDanmaku,
@@ -16,7 +16,6 @@ module Control.Monad.Danmaku (
     -- * Danmaku with bullets
     embedToBullet,
     flatten,
-    dispatch
 ) where
 
 import Control.Arrow (second)
@@ -33,86 +32,107 @@ import Data.Either
 import Data.Monoid
 import qualified Data.Sequence as Seq
 import qualified Data.Foldable as F
+import Debug.Trace
 
-type DanmakuT b m = Coroutine (Firing b) m
+type DanmakuT b t m = Coroutine (Firing b t) m
 
-data Firing b c = Fire b c | Tick c
+data Firing b t c = Fire b c | Tick t c
 
-instance Functor (Firing x) where
+instance Functor (Firing a b) where
     fmap f (Fire x y) = Fire x (f y)
-    fmap f (Tick y) = Tick (f y)
+    fmap f (Tick x y) = Tick x (f y)
 
 -- | Put a thing.
-fire :: Monad m => b -> DanmakuT b m ()
+fire :: Monad m => b -> DanmakuT b t m ()
 fire x = suspend $ Fire x (return ())
 
 -- | Proceed one step.
-tick :: Monad m => DanmakuT b m ()
-tick = suspend $ Tick (return ())
+tick :: Monad m => t -> DanmakuT b t m ()
+tick x = suspend $ Tick x (return ())
 
 -- | Proceed given steps.
-wait :: Monad m => Int -> DanmakuT b m ()
-wait = flip replicateM_ tick
+wait :: Monad m => Int -> t -> DanmakuT b t m ()
+wait n t = replicateM_ n (tick t)
 
-runDanmakuT :: Monad m => DanmakuT b m a -> m (Either (Firing b (DanmakuT b m a)) a)
+runDanmakuT :: Monad m => DanmakuT b t m a -> m (Either (Firing b t (DanmakuT b t m a)) a)
 runDanmakuT = resume
 
 -- | A danmaku that produces nothing forever.
-emptyDanmaku :: Monad m => DanmakuT b m a
-emptyDanmaku = forever tick
+emptyDanmaku :: Monad m => DanmakuT b () m a
+emptyDanmaku = forever $ tick ()
 
 -- | Compute a next state of danmaku and produced thing.
-evolveDanmakuT :: Monad m => DanmakuT b m a -> m (Either (DanmakuT b m a) a, [b])
+evolveDanmakuT :: Monad m => DanmakuT b t m a -> m (Either (Yield ([b], t) (DanmakuT b t m a)) a)
 evolveDanmakuT danmaku = do
     r <- resume danmaku
     case r of
         Left (Fire x cont) -> do
-            (cont', xs) <- evolveDanmakuT cont
-            return (cont', x:xs)
-        Left (Tick cont) -> return (Left cont, [])
-        Right a -> return (Right a, [])
+            r <- evolveDanmakuT cont
+            case r of
+                Left (Yield (xs, t) cont') -> return $! Left (Yield (x : xs, t) cont')
+                Right a -> return $! Right a
+        Left (Tick x cont) -> return $! Left (Yield ([], x) cont)
+        Right a -> return $! Right a
 
-mapShot :: Monad m => (b -> Maybe b') -> DanmakuT b m a -> DanmakuT b' m a
-mapShot f danmaku = do
+mapFire :: Monad m => (b -> Maybe b') -> DanmakuT b t m a -> DanmakuT b' t m a
+mapFire f danmaku = do
     r <- lift $ resume danmaku
     case r of
-        Left (Fire x cont) -> maybe (return ()) fire (f x) >> mapShot f cont
-        Left (Tick cont) -> tick >> mapShot f cont
+        Left (Fire x cont) -> maybe (return ()) fire (f x) >> mapFire f cont
+        Left (Tick x cont) -> tick x >> mapFire f cont
         Right a -> return a
-    
+
+mapTick :: Monad m => (t -> Maybe t') -> DanmakuT b t m a -> DanmakuT b t' m a
+mapTick f danmaku = do
+    r <- lift $ resume danmaku
+    case r of
+        Left (Fire x cont) -> fire x >> mapTick f cont
+        Left (Tick x cont) -> maybe (return ()) tick (f x) >> mapTick f cont
+        Right a -> return a
+        
 -- | Transform danmaku that has state to a mere danmaku. 
 embedDanmakuState :: Monad m
     => s -- ^initial state
-    -> DanmakuT b (StateT s m) () -- ^original danmaku
-    -> DanmakuT b m ()
+    -> DanmakuT b t (StateT s m) a -- ^original danmaku
+    -> DanmakuT b t m a
 embedDanmakuState initial danmaku = do
-    ((cont, xs), s) <- lift $ evolveDanmakuT danmaku `runStateT` initial
-    mapM_ fire xs
-    tick
-    either (embedDanmakuState s) return cont
-
--- | Compose danmakus into one and run in parallel.
-parallelDanmaku :: Monad m => [DanmakuT b m a] -> DanmakuT b m ()
-parallelDanmaku xs = do
-    (ds, bss) <- lift $ liftM unzip $ mapM evolveDanmakuT xs
-    mapM_ fire $ concat bss
-    let ds' = lefts ds
-    unless (null ds') $ tick >> parallelDanmaku ds'
-
--- | Convert a bullet into a bullet that produces something produced by the danmaku. 
-embedToBullet :: Monad m => BulletT s m a -> DanmakuT b (ReaderT s m) a -> BulletT s (WriterT (Seq.Seq b) m) a
-embedToBullet bullet danmaku = do
-    r <- lift $ lift $ resume bullet
+    (r, s) <- lift $ evolveDanmakuT danmaku `runStateT` initial
     case r of
-        Left (Yield s cont) -> do
-            (danmaku', xs) <- lift $ lift $ evolveDanmakuT danmaku `runReaderT` s
-            lift $ tell $ Seq.fromList xs
-            yield s
-            either (embedToBullet cont) return danmaku'
+        Left (Yield (bs, t) cont) -> mapM_ fire bs >> tick t >> embedDanmakuState s cont
         Right a -> return a
 
+-- | Combine two danmakus into one and run in parallel.
+parallelDanmaku :: Monad m => DanmakuT b t m a -> DanmakuT b u m b -> DanmakuT b (t, u) m (Either a b)
+parallelDanmaku a b = do
+    r <- lift $ evolveDanmakuT a
+    case r of
+        Left (Yield (bs, t) cont) -> do
+            r <- lift $ evolveDanmakuT b
+            case r of
+                Left (Yield (cs, u) cont') -> do
+                    mapM_ fire (bs ++ cs)
+                    tick (t, u)
+                    parallelDanmaku cont cont'
+                Right b -> return $! Right b 
+        Right a -> return $! Left a
+
+-- | Convert a bullet into a bullet that produces something produced by the danmaku. 
+embedToBullet :: Monad m => (s -> t -> u) -> BulletT s m a -> DanmakuT b t (ReaderT s m) c -> BulletT u (WriterT (Seq.Seq b) m) (Either a c)
+embedToBullet f bullet danmaku = do
+    r <- lift $ lift $ resume bullet
+    case r of
+        Left (Yield s bullet') -> do
+            r <- lift $ lift $ evolveDanmakuT danmaku `runReaderT` s
+            case r of
+                Left (Yield (xs, t) cont) -> do
+                    lift $ tell $ Seq.fromList xs
+                    yield (f s t)
+                    embedToBullet f bullet' cont
+                Right c -> return $! Right c
+        Right a -> return $! Left a
+
 -- | Transform a danmaku that produces bullets producing something, into a danmaku that produces it.
-flatten :: Monad m => DanmakuT (BulletT s (WriterT (Seq.Seq b) m) c) m a -> DanmakuT (Either s b) m a
+flatten :: Monad m => DanmakuT (BulletT s (WriterT (Seq.Seq b) m) c) t m a -> DanmakuT (Either s b) t m a
 flatten = flatten' [] where
     flatten' tamas danmaku = do
         tss <- forM tamas $ \t -> do
@@ -121,22 +141,7 @@ flatten = flatten' [] where
             case r of
                 Left (Yield s cont) -> fire (Left s) >> return [cont]
                 Right _ -> return []
-        tick
-        (cont, ts) <- lift $ evolveDanmakuT danmaku
-        either (flatten' $ ts ++ concat tss) return cont
-
-dispatch :: Monad m => DanmakuT (BulletT s (ReaderT r m) c) (WriterT (Last r) m) a
-    -> DanmakuT (BulletT s m ()) m ()
-dispatch = route' [] where
-    route' tamas danmaku = do
-        ((cont, ts), Last v') <- lift $ runWriterT $ evolveDanmakuT danmaku
-        case v' of
-            Nothing -> return ()
-            Just v -> do
-                tss <- forM tamas $ \t -> do
-                    r <- lift $ runBulletT t `runReaderT` v
-                    case r of
-                        Left (Yield s cont) -> fire (yield s) >> return (Just cont)
-                        Right _ -> return Nothing
-                tick
-                either (route' (ts ++ catMaybes tss)) (const $ return ()) cont
+        r <- lift $ evolveDanmakuT danmaku
+        case r of
+            Left (Yield (xs, t) cont) -> tick t >> flatten' (xs ++ concat tss) cont
+            Right a -> return a

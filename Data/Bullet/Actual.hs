@@ -8,11 +8,13 @@ module Data.Bullet.Actual (
     boundBy,
     uniformBullet,
     linearBullet,
-    bulletWithVelocity
+    bulletWithVelocity,
+    bulletWithVelocity'
 ) where
 import Data.Vect.Double
 import Control.Monad
 import Control.Monad.Trans
+import Control.Monad.Reader
 import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors
 import Control.Monad.Bullet
@@ -45,7 +47,8 @@ uniformBullet :: Monad m => Double -- angle
     -> Double -- speed
     -> Vec2 -- initial position
     -> ActualBulletT m a
-uniformBullet a s pos = yield (pos, a) >> uniformBullet a s (pos &+ sinCos a &* s)
+uniformBullet a s pos = bullet pos where
+    bullet pos = yield (pos, a) >> bullet (pos &+ sinCos a &* s)
 
 linearBullet :: Monad m => Double -> Vec2
     -> BulletT Double m a
@@ -65,4 +68,15 @@ bulletWithVelocity pos b = do
             yield (pos', angle2 v)
             bulletWithVelocity pos' cont
         Right a -> return a
-        
+
+bulletWithVelocity' :: Monad m => Vec2
+    -> BulletT Vec2 (ReaderT Vec2 m) a
+    -> ActualBulletT m a
+bulletWithVelocity' pos b = do
+    r <- lift $ resume b `runReaderT` pos
+    case r of
+        Left (Yield v cont) -> do
+            let pos' = pos &+ v
+            yield (pos', angle2 v)
+            bulletWithVelocity' pos' cont
+        Right a -> return a

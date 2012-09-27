@@ -1,5 +1,5 @@
 module MonadicShooter.Barrage (globalBarrage) where
-
+import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Reader
@@ -9,13 +9,46 @@ import Control.Monad.Danmaku
 import Control.Monad.Bullet
 import Data.Array
 import Data.Vect.Double
-import Data.Map
+import qualified Data.Map as Map
 import Data.Bullet.Actual
 import MonadicShooter.Shell
 import MonadicShooter.Field
+import MonadicShooter.Concrete.Fluid
+import MonadicShooter.Graphic
+import Data.Functor.Identity
 
-globalBarrage = youmu
-
+forever' a = let a' = a >> a' in a'
+ 
+globalBarrage :: Monad m => Map.Map String Picture -> DanmakuT (Shell (ReaderT (Vec2 -> Vec2) m)) (Vec2 -> Vec2) (ReaderT Vec2 m) ()
+globalBarrage m = mapFire (Just . createShell m ("wedge-blue", 5)) $ fluid
+{-
+ignoreReader :: DanmakuT (ActualBullet ()) Identity () -> DanmakuT (ActualBullet ()) (Reader Vec2) ()
+ignoreReader danmaku = do
+    (cont, xs) <- lift $ lift $ evolveDanmakuT danmaku
+    mapM_ fire xs
+    tick
+    either ignoreReader (const $ return ()) cont
+-}
+fluid :: Monad m => DanmakuT (ActualBulletT (ReaderT (Vec2 -> Vec2) m) ()) (Vec2 -> Vec2) (ReaderT r m) ()
+fluid = do
+    forM_ ((,) <$> [12,36..480] <*> [12,36..480]) $ \(x,y) -> fire $ boundBy inTheField $ bullet (Vec2 x y)
+    dispatch computeFluid 0 1
+    where
+        n = 100
+        bullet :: Monad m => Vec2 -> ActualBulletT (ReaderT (Vec2 -> Vec2) m) ()
+        bullet pos = do
+            field <- ask
+            let v = field (pos &* (1/480)) &* 3500
+            yield (pos, angle2 v)
+            bullet (pos &+ v)
+        
+        dispatch c n d = do
+            Left (Yield x cont) <- runBulletT c `runReaderT` (4.2e-4 * d) 
+            tick x
+            if n == 720
+                then dispatch cont 0 (-d)
+                else dispatch cont (succ n) d
+{-
 youmu = forever $ youmu0 >> youmu1 >> wait 120
 
 youmu0 :: DanmakuT Shell' (Reader Vec2) ()
@@ -65,3 +98,4 @@ youmu1 = mapShot (either (const Nothing) Just) $ flatten $ replicateM_ 2 $ do
             forM_ [2,4..8] $ \speed -> fire $ createShell img $ boundBy inTheField
                 $ uniformBullet (angle2 $ target &- center) speed center
             wait 2
+            -}

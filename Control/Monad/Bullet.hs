@@ -1,4 +1,4 @@
-{-# LANGUAGE UndecidableInstances, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE BangPatterns, UndecidableInstances, FlexibleInstances, MultiParamTypeClasses #-}
 module Control.Monad.Bullet (
     BulletT,
     runBulletT,
@@ -58,7 +58,7 @@ embedBulletState initial bullet = do
     (r, s) <- lift $ resume bullet `runStateT` initial
     case r of
         Left (Yield x cont) -> yield x >> embedBulletState s cont
-        Right a -> return a
+        Right a -> return $! a
 
 yieldingToResult :: Monad m => a -> BulletT a m b -> BulletT a m a
 yieldingToResult prev bullet = do
